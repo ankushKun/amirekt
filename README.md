@@ -34,7 +34,19 @@ No output = clean. File paths = affected.
 | **node_modules** | Installed axios and `plain-crypto-js` packages on disk |
 | **package.json** | Caret/tilde ranges that could resolve to compromised versions |
 | **IOC artifacts** | RAT files: `/Library/Caches/com.apple.act.mond` (macOS), `/tmp/ld.py` (Linux), `%PROGRAMDATA%\wt.exe` (Windows) |
+| **Payload hashes** | SHA-256 scan of `/tmp`, `/Library/Caches`, and temp dirs to catch renamed/moved payloads ([source](https://x.com/cyb3rjerry/status/2038835112071278608)) |
 | **C2 connections** | Active connections to attacker IP `142.11.206.73` |
+
+### Known Payload Hashes (SHA-256)
+
+| Stage | Hash |
+|-------|------|
+| Windows Stage 1 | `f7d335205b8d7b20208fb3ef93ee6dc817905dc3ae0c10a0b164f4e7d07121cd` |
+| Windows Stage 2 | `617b67a8e1210e4fc87c92d1d1da45a2f311c08d26e89b12307cf583c900d101` |
+| macOS | `92ff08773995ebc8d55ec4b8e1a225d0d1e51efa4ef88b8849d0071230c9645a` |
+| Linux | `fcb81618bb15edfedfb638b4c08a2af9cac9ecfa551af135a8402bf980375cf` |
+
+*Credit: [@cyb3rjerry](https://x.com/cyb3rjerry/status/2038835112071278608)*
 
 ## Usage (cloned)
 

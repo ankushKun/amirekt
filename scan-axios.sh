@@ -114,6 +114,35 @@ check_package_json() {
 # ---------------------------------------------------------------------------
 # 4. Check for IOC artifacts on the local machine
 # ---------------------------------------------------------------------------
+# Known payload hashes (SHA-256) — credit: @cyb3rjerry
+# https://x.com/cyb3rjerry/status/2038835112071278608
+HASH_WIN_STAGE1="f7d335205b8d7b20208fb3ef93ee6dc817905dc3ae0c10a0b164f4e7d07121cd"
+HASH_WIN_STAGE2="617b67a8e1210e4fc87c92d1d1da45a2f311c08d26e89b12307cf583c900d101"
+HASH_MACOS="92ff08773995ebc8d55ec4b8e1a225d0d1e51efa4ef88b8849d0071230c9645a"
+HASH_LINUX="fcb81618bb15edfedfb638b4c08a2af9cac9ecfa551af135a8402bf980375cf"
+
+ALL_HASHES=("$HASH_WIN_STAGE1" "$HASH_WIN_STAGE2" "$HASH_MACOS" "$HASH_LINUX")
+
+check_file_hash() {
+    local file="$1"
+    local hash=""
+    if command -v shasum &>/dev/null; then
+        hash=$(shasum -a 256 "$file" 2>/dev/null | awk '{print $1}')
+    elif command -v sha256sum &>/dev/null; then
+        hash=$(sha256sum "$file" 2>/dev/null | awk '{print $1}')
+    else
+        return
+    fi
+    for known in "${ALL_HASHES[@]}"; do
+        if [[ "$hash" == "$known" ]]; then
+            log_critical "MALICIOUS PAYLOAD HASH MATCH: $file"
+            echo -e "  ${RED}→ SHA-256: $hash${NC}"
+            FOUND_ISSUES=$((FOUND_ISSUES + 1))
+            return
+        fi
+    done
+}
+
 check_local_iocs() {
     echo -e "${BOLD}--- Checking for IOC artifacts on this machine ---${NC}"
 
@@ -134,8 +163,22 @@ check_local_iocs() {
     for f in "${ioc_files[@]}"; do
         if [[ -e "$f" ]]; then
             log_critical "IOC file found: $f — THIS MACHINE MAY BE COMPROMISED"
+            check_file_hash "$f"
             FOUND_ISSUES=$((FOUND_ISSUES + 1))
         fi
+    done
+
+    # Verify hashes of known drop paths (catches modified names at same locations)
+    log_info "Verifying payload hashes at known drop locations..."
+    local hash_targets=(
+        "/Library/Caches/com.apple.act.mond"
+        "/tmp/ld.py"
+    )
+    [[ -n "${PROGRAMDATA:-}" ]] && hash_targets+=("${PROGRAMDATA}/wt.exe")
+    [[ -n "${TEMP:-}" ]] && hash_targets+=("${TEMP}/6202033.vbs" "${TEMP}/6202033.ps1")
+
+    for f in "${hash_targets[@]}"; do
+        [[ -f "$f" ]] && check_file_hash "$f"
     done
 
     # Check for C2 connections
