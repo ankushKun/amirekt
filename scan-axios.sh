@@ -41,10 +41,9 @@ check_lockfile() {
 
     # Check for compromised axios versions
     if grep -qE '"axios".*"(1\.14\.1|0\.30\.4)"' "$lockfile" 2>/dev/null || \
-       grep -qE 'axios@(1\.14\.1|0\.30\.4)' "$lockfile" 2>/dev/null || \
-       grep -qE '"version":\s*"(1\.14\.1|0\.30\.4)"' "$lockfile" 2>/dev/null; then
+       grep -qE 'axios@(1\.14\.1|0\.30\.4)' "$lockfile" 2>/dev/null; then
         log_critical "Compromised axios version found in: $lockfile"
-        grep -nE '(1\.14\.1|0\.30\.4)' "$lockfile" 2>/dev/null | head -5 | while read -r line; do
+        grep -nE 'axios.*(1\.14\.1|0\.30\.4)' "$lockfile" 2>/dev/null | head -5 | while read -r line; do
             echo -e "  ${RED}→ $line${NC}"
         done
         FOUND_ISSUES=$((FOUND_ISSUES + 1))
@@ -206,18 +205,40 @@ done < <(find "$SCAN_DIR" -maxdepth 5 \( -name "package-lock.json" -o -name "yar
 log_info "Scanned $lockfile_count lockfile(s)"
 echo ""
 
-# Scan installed node_modules for axios
+# Scan installed node_modules for axios (including nested/transitive installs)
 echo -e "${BOLD}--- Scanning node_modules for compromised installs ---${NC}"
 nm_count=0
 while IFS= read -r -d '' pkg; do
     check_node_modules "$pkg"
     nm_count=$((nm_count + 1))
-done < <(find "$SCAN_DIR" -maxdepth 6 -path "*/node_modules/axios/package.json" -print0 2>/dev/null)
-# Also check for plain-crypto-js in node_modules
+done < <(find "$SCAN_DIR" -maxdepth 10 -path "*/node_modules/axios/package.json" -print0 2>/dev/null)
+# Also check for plain-crypto-js in node_modules (including nested)
 while IFS= read -r -d '' pkg; do
     check_node_modules "$pkg"
-done < <(find "$SCAN_DIR" -maxdepth 6 -path "*/node_modules/plain-crypto-js/package.json" -print0 2>/dev/null)
-log_info "Checked $nm_count installed axios package(s)"
+done < <(find "$SCAN_DIR" -maxdepth 10 -path "*/node_modules/plain-crypto-js/package.json" -print0 2>/dev/null)
+log_info "Checked $nm_count installed axios package(s) (including nested/transitive)"
+echo ""
+
+# Scan transitive dependencies — packages inside node_modules that depend on axios
+echo -e "${BOLD}--- Scanning transitive dependencies that pull in axios ---${NC}"
+transitive_count=0
+while IFS= read -r -d '' pkg; do
+    # Skip top-level package.json files (already checked above) and axios's own package.json
+    [[ "$pkg" != *"/node_modules/"* ]] && continue
+    [[ "$pkg" == *"/node_modules/axios/"* ]] && continue
+
+    if grep -qE '"axios"' "$pkg" 2>/dev/null; then
+        local_spec=$(grep -oE '"axios"\s*:\s*"[^"]*"' "$pkg" 2>/dev/null | head -1)
+        if echo "$local_spec" | grep -qE '(\^1\.|~1\.14\.|1\.14\.1|0\.30\.4|\^0\.30\.)'; then
+            parent_pkg=$(grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' "$pkg" 2>/dev/null | head -1 | grep -o '"[^"]*"$' | tr -d '"')
+            log_warn "Transitive dependency '${parent_pkg:-unknown}' depends on axios with vulnerable range"
+            echo -e "  ${YELLOW}→ $local_spec (in $pkg)${NC}"
+            FOUND_ISSUES=$((FOUND_ISSUES + 1))
+            transitive_count=$((transitive_count + 1))
+        fi
+    fi
+done < <(find "$SCAN_DIR" -maxdepth 10 -path "*/node_modules/*/package.json" -not -path "*/node_modules/*/node_modules/*/node_modules/*/package.json" -print0 2>/dev/null)
+log_info "Found $transitive_count transitive dependency issue(s)"
 echo ""
 
 # Scan package.json files for vulnerable ranges
